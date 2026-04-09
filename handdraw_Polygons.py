@@ -337,6 +337,39 @@ def get_latest_submissions_by_survey(mongo_uri, db_name="lts", coll_name="year1s
         except Exception:
             pass
 
+def get_all_baseline_versions(mongo_uri, db_name="lts", coll_name="year1submissions"):
+    """
+    Query all Baseline versions across all surveys in the DB.
+    """
+    client = None
+    results = []
+    try:
+        from pymongo import MongoClient
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        client.server_info()
+        coll = client[db_name][coll_name]
+        for doc in coll.find({"data.baseline_version": {"$exists": True}}):
+            survey = doc.get("data", {}).get("survey")
+            b_val = doc.get("data", {}).get("baseline_version")
+            ts = doc.get("timestamp")
+            msg = doc.get("data", {}).get("commit_message", "")
+            if survey and b_val:
+                results.append({
+                    "survey": survey,
+                    "baseline_version": b_val,
+                    "timestamp": ts,
+                    "commit_message": msg,
+                    "data": doc.get("data"),
+                    "_id": doc.get("_id")
+                })
+        return results
+    except Exception as e:
+        return []
+    finally:
+        try:
+            if client: client.close()
+        except:
+            pass
 
 def render_draw_polygons_page():
     if "drawing_points" not in st.session_state:
@@ -399,6 +432,31 @@ def render_draw_polygons_page():
     #         pass
 
     st.title("PSOC LTS Tool")
+    # --- UI Load Baseline ---
+    baseline_docs = get_all_baseline_versions(mongo_uri, mongo_db, mongo_coll) if mongo_uri else []
+    if baseline_docs:
+        baseline_docs = sorted(baseline_docs, key=lambda x: (x["survey"], x["baseline_version"]), reverse=True)
+        baseline_opts = {f"[{d['survey']}] {d['baseline_version']} ({str(d.get('timestamp', ''))[:10]})": d for d in baseline_docs}
+        
+        st.markdown("### Load Existing Baseline")
+        colA, colB = st.columns([3, 1])
+        with colA:
+            selected_baseline_label = st.selectbox("Select Baseline to Load", options=["-- Select --"] + list(baseline_opts.keys()))
+        with colB:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Load Baseline into Editor", type="primary"):
+                if selected_baseline_label != "-- Select --":
+                    sel_doc = baseline_opts[selected_baseline_label]
+                    # Format as JSON string and push to session state
+                    st.session_state.editor_code = json.dumps(sel_doc["data"], indent=4)
+                    st.session_state.editor_key += 1
+                    st.rerun()
+
+        if selected_baseline_label != "-- Select --":
+            sel_doc = baseline_opts[selected_baseline_label]
+            c_msg = sel_doc.get("commit_message", "")
+            if c_msg:
+                st.info(f"**{sel_doc['baseline_version']} Change Log:** {c_msg}")
 
     # st.write("""This web tool allows 4MOST surveys to define their Year 1 sky observation preferences as part of the Long-Term Scheduler development efforts.
     # """)
@@ -843,6 +901,61 @@ def render_draw_polygons_page():
             st.success('You must refresh the page before making more edits.\n' + msg)
         else:
             st.error(msg)
+
+    st.divider()
+    st.markdown("### Submit as Official Baseline", unsafe_allow_html=True)
+    with st.expander("Freeze Baseline Version"):
+        st.write("Submit the current editor JSON as a stable, frozen baseline configuration.")
+        
+        current_survey = data.get("survey", "S00")
+        survey_baselines = [d for d in baseline_docs if d["survey"] == current_survey] if "baseline_docs" in locals() and baseline_docs else []
+        
+        highest_major = 0
+        highest_minor = 0
+        if survey_baselines:
+            for b in survey_baselines:
+                b_str = b["baseline_version"].replace("v", "")
+                parts = b_str.split(".")
+                if len(parts) >= 2:
+                    mj, mn = int(parts[0]), int(parts[1])
+                    if mj > highest_major or (mj == highest_major and mn > highest_minor):
+                        highest_major = mj
+                        highest_minor = mn
+        
+        if highest_major == 0 and highest_minor == 0:
+            next_minor = "v0.1"
+            next_major = "v1.0"
+        else:
+            next_minor = f"v{highest_major}.{highest_minor + 1}"
+            next_major = f"v{highest_major + 1}.0"
+            
+        st.write(f"**Latest recorded baseline for {current_survey}:** {f'v{highest_major}.{highest_minor}' if (highest_major > 0 or highest_minor > 0) else 'None'}")
+        bump_type = st.radio("Select Version Increment:", [f"Minor Update ({next_minor})", f"Major Update ({next_major})"], key="bump_type")
+        commit_message = st.text_area("Commit Description / Change Log (Optional)", help="Describe what's changed from the previous versions")
+        
+        if expected_pw is None:
+            st.warning("Upload password not configured in secrets. Baseline locking disabled.")
+        elif pw != expected_pw:
+            st.warning("Please enter the correct password in the section above to unlock Baseline Submission.")
+            
+        if st.button("Commit Baseline", disabled=save_disabled, type="primary"):
+            baseline_tag = next_minor if "Minor Update" in bump_type else next_major
+            
+            try:
+                import copy
+                payload = copy.deepcopy(data)
+                payload["baseline_version"] = baseline_tag
+                if commit_message.strip():
+                    payload["commit_message"] = commit_message.strip()
+                augmented_json_string = json.dumps(payload, indent=4)
+                
+                ok, msg = save_to_remote_db(augmented_json_string, fileOutputName)
+                if ok:
+                    st.success(f"Successfully froze {current_survey} as Baseline {baseline_tag}!")
+                else:
+                    st.error(msg)
+            except Exception as e:
+                st.error(f"Error injecting baseline version: {e}")
 
     st.divider()
     st.header("Latest submissions")

@@ -146,46 +146,65 @@ def _parse_iso_ts(ts):
     except Exception:
         return None
 
-def get_latest_submissions_by_survey(mongo_uri, db_name="lts", coll_name="year1all"):
+def get_all_baseline_versions(mongo_uri, db_name="lts", coll_name="year1all"):
     client = None
-    latest = {}
+    results = []
     try:
+        from pymongo import MongoClient
         client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
         client.server_info()
         coll = client[db_name][coll_name]
-        for doc in coll.find({}):
-            survey = None
-            try:
-                survey = doc.get("data", {}).get("survey")
-            except Exception:
-                survey = None
-                
-            if not survey: continue
-            
-            ts = _parse_iso_ts(doc.get("timestamp"))
-            if ts is None: continue
-            
-            cur = latest.get(survey)
-            if cur is None or ts > cur["_parsed_ts"]:
-                latest[survey] = {"_parsed_ts": ts, "doc": doc}
-                
-        result = {}
-        for s, entry in latest.items():
-            d = entry["doc"]
-            result[s] = {
-                "data": d.get("data"),
-                "timestamp": d.get("timestamp"),
-                "filename": d.get("filename"),
-                "_id": d.get("_id")
-            }
-        return result
+        for doc in coll.find({"data.baseline_version": {"$exists": True}}):
+            survey = doc.get("data", {}).get("survey")
+            b_val = doc.get("data", {}).get("baseline_version")
+            ts = doc.get("timestamp")
+            if survey and b_val:
+                results.append({
+                    "survey": survey,
+                    "baseline_version": b_val,
+                    "timestamp": ts,
+                    "data": doc.get("data"),
+                    "_id": doc.get("_id")
+                })
+        return results
     except Exception as e:
-        return {}
+        return []
     finally:
         try:
             if client: client.close()
-        except Exception:
+        except:
             pass
+
+def select_baseline_submissions(mongo_uri, mongo_db, mongo_coll, key_suffix=""):
+    baseline_docs = []
+    latest_subs = {}
+    if mongo_uri:
+        with st.spinner("Fetching DB Baselines..."):
+            baseline_docs = get_all_baseline_versions(mongo_uri, mongo_db, mongo_coll)
+            
+    if baseline_docs:
+        def parse_ver(doc):
+            try:
+                return float(doc["baseline_version"].replace("v", ""))
+            except Exception:
+                return 0.0
+                
+        baseline_docs = sorted(baseline_docs, key=lambda x: parse_ver(x), reverse=True)
+        opts = {f"[{d['survey']}] {d['baseline_version']} ({str(d.get('timestamp', ''))[:10]})": d for d in baseline_docs}
+        
+        sel = st.selectbox(
+            "Select Baseline Strategy to Include", 
+            options=list(opts.keys()), 
+            index=0,
+            key=f"baseline_selectbox_{key_suffix}"
+        )
+        if sel:
+            d = opts[sel]
+            latest_subs[f"{d['survey']}_{d['baseline_version']}"] = {"data": d["data"]}
+    else:
+        st.warning("No Baseline Submissions loaded or found in DB.")
+        
+    return latest_subs
 
 
 def render_lts_processor_page():
@@ -209,18 +228,18 @@ def render_lts_processor_page():
         dec_filter_above = st.number_input("Declination Filter Above (deg)", value=5.0, step=1.0)
         plot_proj = st.selectbox("Plot Projection", ["mollweide", "cartesian"])
     
+    submissions = {}
+    try:
+        mongo_uri = st.secrets.get("MONGO_URI")
+        mongo_db = st.secrets.get("MONGO_DB", "lts")
+        mongo_coll = st.secrets.get("MONGO_COLLECTION", "year1all")
+        if mongo_uri:
+            submissions = select_baseline_submissions(mongo_uri, mongo_db, mongo_coll, "lts_processor")
+    except Exception:
+        pass
+        
     if st.button("Run LTS Processor", type="primary"):
         with st.spinner("Processing... This may take a minute"):
-            submissions = {}
-            try:
-                mongo_uri = st.secrets.get("MONGO_URI")
-                mongo_db = st.secrets.get("MONGO_DB", "lts")
-                mongo_coll = st.secrets.get("MONGO_COLLECTION", "year1all")
-                if mongo_uri:
-                    submissions = get_latest_submissions_by_survey(mongo_uri, mongo_db, mongo_coll)
-            except Exception:
-                pass
-                
             hpx_maps_by_year, res = process_app_state(
                 app_state=app_state,
                 submissions=submissions,
@@ -230,64 +249,58 @@ def render_lts_processor_page():
                 return_figs=True,
                 return_fits=True
             )
+            # Store in session state to persist through download logic re-runs
+            st.session_state["lts_res"] = res
+
+    # Evaluate results outside the button so they survive Streamlit reruns
+    if "lts_res" in st.session_state:
+        res = st.session_state["lts_res"]
+        figs = res.get("figs", {})
+        
+        if figs.get("lsst") is not None:
+            st.subheader("LSST Maps")
+            st.pyplot(figs["lsst"])
             
-            figs = res.get("figs", {})
-            if figs.get("lsst") is not None:
-                st.subheader("LSST Maps")
-                st.pyplot(figs["lsst"])
+        if figs.get("polygons") is not None:
+            st.subheader("Polygon Overlays")
+            st.pyplot(figs["polygons"])
+            
+        if figs.get("diagnostic") is not None:
+            st.subheader("Final Weight Maps")
+            st.pyplot(figs["diagnostic"])
+            
+        fits_dict = res.get("fits", {})
+        if fits_dict:
+            from astropy.table import vstack
+            from datetime import datetime
+            st.success("Processing complete!")
+            
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            col_dl1, col_dl2 = st.columns(2)
+            
+            lsst_list = fits_dict.get("lsst", [])
+            if lsst_list:
+                combined_lsst = vstack(lsst_list)
+                buf_lsst = io.BytesIO()
+                combined_lsst.write(buf_lsst, format='fits')
+                col_dl1.download_button(
+                    label="Download LSST Weights",
+                    data=buf_lsst.getvalue(),
+                    file_name=f"LSST_all_years_weights_{timestamp}.fits",
+                    mime="application/fits"
+                )
                 
-            if figs.get("polygons") is not None:
-                st.subheader("Polygon Overlays")
-                st.pyplot(figs["polygons"])
-                
-            if figs.get("diagnostic") is not None:
-                st.subheader("Final Weight Maps")
-                st.pyplot(figs["diagnostic"])
-                
-            fits_dict = res.get("fits", {})
-            if fits_dict:
-                from astropy.table import vstack
-                from datetime import datetime
-                st.success("Processing complete!")
-                
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                col_dl1, col_dl2, col_dl3 = st.columns(3)
-                
-                lsst_list = fits_dict.get("lsst", [])
-                if lsst_list:
-                    combined_lsst = vstack(lsst_list)
-                    buf_lsst = io.BytesIO()
-                    combined_lsst.write(buf_lsst, format='fits')
-                    col_dl1.download_button(
-                        label="Download LSST Weights",
-                        data=buf_lsst.getvalue(),
-                        file_name=f"LSST_all_years_weights_{timestamp}.fits",
-                        mime="application/fits"
-                    )
-                    
-                poly_list = fits_dict.get("poly", [])
-                if poly_list:
-                    combined_poly = vstack(poly_list)
-                    buf_poly = io.BytesIO()
-                    combined_poly.write(buf_poly, format='fits')
-                    col_dl2.download_button(
-                        label="Download Polygon Weights",
-                        data=buf_poly.getvalue(),
-                        file_name=f"User_defined_plan_{timestamp}.fits",
-                        mime="application/fits"
-                    )
-                    
-                combined_list = fits_dict.get("combined", [])
-                if combined_list:
-                    combined_all = vstack(combined_list)
-                    buf_all = io.BytesIO()
-                    combined_all.write(buf_all, format='fits')
-                    col_dl3.download_button(
-                        label="Download Combined Weights",
-                        data=buf_all.getvalue(),
-                        file_name=f"LSST_combined_weights_{timestamp}.fits",
-                        mime="application/fits"
-                    )
+            poly_list = fits_dict.get("poly", [])
+            if poly_list:
+                combined_poly = vstack(poly_list)
+                buf_poly = io.BytesIO()
+                combined_poly.write(buf_poly, format='fits')
+                col_dl2.download_button(
+                    label="Download LTS Yearly Weights",
+                    data=buf_poly.getvalue(),
+                    file_name=f"User_defined_plan_{timestamp}.fits",
+                    mime="application/fits"
+                )
 
 # -------------------------------------------------------------
 # Navigation
@@ -354,13 +367,7 @@ except Exception:
 
 latest_submissions = {}
 if mongo_uri:
-    with st.spinner("Fetching latest MongoDB submissions..."):
-        latest_submissions = get_latest_submissions_by_survey(mongo_uri, mongo_db, mongo_coll)
-
-if not latest_submissions:
-    st.warning("No MongoDB submissions loaded or found.")
-
-# print(latest_submissions)
+    latest_submissions = select_baseline_submissions(mongo_uri, mongo_db, mongo_coll, "overlay")
 # NSIDE determines the resolution of the HEALPix map
 nside_options = [16, 32, 64, 128, 256, 512]
 NSIDE = st.select_slider("Select Map Resolution (NSIDE)", options=nside_options, value=32, key="nside_widget")

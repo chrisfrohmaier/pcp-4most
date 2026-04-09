@@ -206,8 +206,12 @@ def create_polygon_map(nside, target_year, submissions):
             t_frac = float(area.get('t_frac', 0.0))
             areas_to_process.append((t_frac, area))
             
-    # Sort areas from smallest to largest t_frac
-    areas_to_process.sort(key=lambda x: x[0])
+    # Sort areas to determine map overriding order.
+    # By default, process from smallest to largest t_frac so larger values overwrite smaller ones (taking the max).
+    # User Decision: If t_frac is exactly 0.0, it acts as an absolute veto mask and should override everything else.
+    # Sorting key: (is_zero, t_frac). This puts non-zeros (False) before zeros (True),
+    # ensuring 0.0 is applied last and permanently overwrites any overlapping max footprints.
+    areas_to_process.sort(key=lambda x: (x[0] == 0.0, x[0]))
     
     for t_frac, area in areas_to_process:
         # Get pixels inside shape
@@ -215,10 +219,38 @@ def create_polygon_map(nside, target_year, submissions):
         
         # Assign t_frac to those pixels
         if len(pixels) > 0:
-            # Applying in sorted order means larger t_frac values overwrite smaller ones
             poly_map[pixels] = t_frac
                 
     return poly_map
+
+def convertUserWeightToLTSWeight(userWeight):
+    """
+    Converts a user-provided weight to an LTS weight.
+    The LTS is defined as a weight of 1 == 20% of the avaliable time. This scales such that 
+    100% of the time is infinty.
+
+    The function ensures that the input user weight does not exceed 0.95. 
+    It then calculates the LTS weight using the formula:
+        weightLTS = (userWeight * 4.0) / (1 - userWeight)
+
+    Args:
+        userWeight (float): The user-provided weight, expected to be in the range [0, 1].
+
+    Returns:
+        float: The calculated LTS weight.
+
+    Notes:
+        - If the input user weight is greater than 0.95, it is capped at 0.95 
+          to avoid division by zero or excessively large values.
+    """
+    '''
+    This function takes the user weights
+    '''
+    if userWeight > 0.95:
+        userWeight = 0.95
+    weightLTS = (userWeight*4.0)/(1-userWeight)
+    return weightLTS
+
 
 def process_app_state(app_state, submissions=None, lts_tfrac=0.5, dec_filter_above=5.0, invert_lsst_Y1_onto_Y2=False, plot_proj="mollweide", return_figs=False, return_fits=False):
     """
@@ -415,14 +447,16 @@ def process_app_state(app_state, submissions=None, lts_tfrac=0.5, dec_filter_abo
         
     # Pass 2: Apply polygon masks over the generated maps
     polygon_maps_by_year = {}
+    v_func = np.vectorize(convertUserWeightToLTSWeight)
     for year_num, hpx_map in sorted(hpx_maps_by_year.items()):
         # Generate the polygon t_frac map for this year
         poly_map = create_polygon_map(nside, year_num, submissions)
-        polygon_maps_by_year[year_num] = poly_map
         
-        # If the healpix is contained within the shape, it is given the value of t_frac
+        # Apply the user defined LTS scaling function
         in_poly_mask = ~np.isnan(poly_map)
-        hpx_map[in_poly_mask] = poly_map[in_poly_mask]
+        poly_map[in_poly_mask] = v_func(poly_map[in_poly_mask])
+        
+        polygon_maps_by_year[year_num] = poly_map
         
         valid_pixels = np.count_nonzero(~np.isnan(hpx_map))
         mapped_poly_pixels = np.count_nonzero(in_poly_mask)
@@ -445,7 +479,7 @@ def process_app_state(app_state, submissions=None, lts_tfrac=0.5, dec_filter_abo
                 cmap='viridis', 
                 cbar=True, 
                 min=0.0,
-                max=1.0,
+                max=float(np.nanmax(poly_map)),
                 nest=True,
                 rot=[180, 0, 0]
             )
@@ -502,14 +536,6 @@ def process_app_state(app_state, submissions=None, lts_tfrac=0.5, dec_filter_abo
 
     # Finally, save the merged LTS generated tables
     poly_qtable_list = []
-    combined_qtable_list = []
-    
-    if hpx_maps_by_year:
-        for year, hpx_map in sorted(hpx_maps_by_year.items()):
-            year_start = start_mjd + (year - 1) * 365
-            combined_qtable = lsst_map_to_LTS_format(hpx_map, nside, year_start, start_mjd)
-            if len(combined_qtable) > 0:
-                combined_qtable_list.append(combined_qtable)
                 
     if polygon_maps_by_year:
         for year, poly_map in sorted(polygon_maps_by_year.items()):
@@ -523,8 +549,6 @@ def process_app_state(app_state, submissions=None, lts_tfrac=0.5, dec_filter_abo
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         if 'lsst_qtable_list' in locals() and lsst_qtable_list:
             merge_all_LSST_save_to_file(lsst_qtable_list, f'lts_all_years_weights_{timestamp}.fits')
-        if combined_qtable_list:
-            merge_all_LSST_save_to_file(combined_qtable_list, f'LSST_combined_weights_{timestamp}.fits')
         if poly_qtable_list:
             merge_all_LSST_save_to_file(poly_qtable_list, f'User_defined_plan_{timestamp}.fits')
             
@@ -535,8 +559,7 @@ def process_app_state(app_state, submissions=None, lts_tfrac=0.5, dec_filter_abo
         if return_fits:
             res['fits'] = {
                 'lsst': lsst_qtable_list if 'lsst_qtable_list' in locals() else [],
-                'poly': poly_qtable_list,
-                'combined': combined_qtable_list
+                'poly': poly_qtable_list
             }
         return hpx_maps_by_year, res
             
