@@ -474,13 +474,14 @@ def process_app_state(app_state, submissions=None, lts_tfrac=0.5, dec_filter_abo
         poly_fig = plt.figure(figsize=(7 * cols, 5 * rows))
         
         for i, (year, poly_map) in enumerate(sorted(polygon_maps_by_year.items())):
+            poly_max = float(np.nanmax(poly_map)) if np.any(~np.isnan(poly_map)) else 1.0
             kwargs = dict(
                 title=f"Year {year} Polygon Overlays", 
                 sub=(rows, cols, i + 1), 
                 cmap='viridis', 
                 cbar=True, 
                 min=0.0,
-                max=float(np.nanmax(poly_map)),
+                max=poly_max,
                 nest=True,
                 rot=[180, 0, 0]
             )
