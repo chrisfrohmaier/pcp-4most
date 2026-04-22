@@ -447,14 +447,15 @@ def process_app_state(app_state, submissions=None, lts_tfrac=0.5, dec_filter_abo
         
     # Pass 2: Apply polygon masks over the generated maps
     polygon_maps_by_year = {}
-    v_func = np.vectorize(convertUserWeightToLTSWeight)
+    v_func = np.vectorize(convertUserWeightToLTSWeight, otypes=[float])
     for year_num, hpx_map in sorted(hpx_maps_by_year.items()):
         # Generate the polygon t_frac map for this year
         poly_map = create_polygon_map(nside, year_num, submissions)
         
         # Apply the user defined LTS scaling function
         in_poly_mask = ~np.isnan(poly_map)
-        poly_map[in_poly_mask] = v_func(poly_map[in_poly_mask])
+        if np.any(in_poly_mask):
+            poly_map[in_poly_mask] = v_func(poly_map[in_poly_mask])
         
         polygon_maps_by_year[year_num] = poly_map
         
