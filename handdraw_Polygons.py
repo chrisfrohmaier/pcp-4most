@@ -159,7 +159,7 @@ def plotPolygons(data, survey_id, allColours=True):
                     fillcolor=fillcol,
                     name=f"{i.get('name', 'stripe')}<br> t_frac: {tfrac}"
                 ))
-            elif i['type']=='point':
+            elif i['type'] in ('point', 'circle'):
                 ra_center = i['RA_center']
                 dec_center = i['Dec_center']
                 radius = i.get('radius', 1.15)

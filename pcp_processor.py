@@ -148,10 +148,10 @@ def get_pixels_for_shape(nside, shape, ra_all, dec_all):
         mask = mask_ra & (dec_all >= dec_min) & (dec_all <= dec_max)
         pixels = np.where(mask)[0]
 
-    elif shape['type'] == 'point':
+    elif shape['type'] in ('point', 'circle'):
         ra_center = shape.get('RA_center', 0)
         dec_center = shape.get('Dec_center', 0)
-        radius_deg = 2
+        radius_deg = shape.get('radius', 1.15)
         
         theta = np.deg2rad(90.0 - dec_center)
         phi = np.deg2rad(ra_center)
