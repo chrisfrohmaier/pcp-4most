@@ -7,3 +7,4 @@ venv
 *.csv
 *.pyc
 __pycache__/
+stellar_fields

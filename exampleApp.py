@@ -156,7 +156,7 @@ def plotPolygons(data, survey_id, allColours=True):
         elif i['type']=='point':
             ra_center = i['RA_center']
             dec_center = i['Dec_center']
-            radius = 1.15
+            radius = i.get('radius', 1.15)
             tfrac = i['t_frac']
             tissot = plotEllipseTissot(ra_center, dec_center, radius = radius)
 
@@ -244,7 +244,7 @@ def computeTimePressures(data):
             elif i.get('type') == 'point':
                 ra_center = i['RA_center']
                 dec_center = i['Dec_center']
-                radius = 1.15
+                radius = i.get('radius', 1.15)
                 tfrac = float(i.get('t_frac', 0.0))
                 tissot = plotEllipseTissot(ra_center, dec_center, radius=radius)
                 convex_hull = tissot
