@@ -125,7 +125,7 @@ def plotPolygons(data, survey_id, allColours=True):
             if dec_span < min_span:
                 st.warning(
                     f"Stripe '{i.get('name','')}' for survey {survey_id} is too small: "
-                    f"Dec span={dec_span:.2f}. Minimum is {min_span}.\n This will not be plotted and is not a valid LTS input."
+                    f"Dec span={dec_span:.2f}. Minimum is {min_span}.\n This will not be plotted and is not a valid PCP input."
                 )
                 continue
             # build rectangle corners and plot on chosen figure
@@ -290,7 +290,7 @@ def _parse_iso_ts(ts):
     except Exception:
         return None
 
-def get_latest_submissions_by_survey(mongo_uri, db_name="lts", coll_name="year1submissions"):
+def get_latest_submissions_by_survey(mongo_uri, db_name="pcp", coll_name="year1submissions"):
     """
     Return dict: { survey_id: { "data": <doc.data>, "timestamp": <doc.timestamp>, "filename": <doc.filename>, "_id": <doc._id> } }
     where the document chosen is the latest (by timestamp) for that survey.
@@ -337,7 +337,7 @@ def get_latest_submissions_by_survey(mongo_uri, db_name="lts", coll_name="year1s
         except Exception:
             pass
 
-def get_all_baseline_versions(mongo_uri, db_name="lts", coll_name="year1submissions"):
+def get_all_baseline_versions(mongo_uri, db_name="pcp", coll_name="year1submissions"):
     """
     Query all Baseline versions across all surveys in the DB.
     """
@@ -382,11 +382,11 @@ def render_draw_polygons_page():
     # query MongoDB for latest submissions per survey (if secrets provided)
     try:
         mongo_uri = st.secrets.get("MONGO_URI")
-        mongo_db = st.secrets.get("MONGO_DB", "lts")
+        mongo_db = st.secrets.get("MONGO_DB", "pcp")
         mongo_coll = st.secrets.get("MONGO_COLLECTION", "year1all")
     except Exception:
         mongo_uri = None
-        mongo_db = "lts"
+        mongo_db = "pcp"
         mongo_coll = "year1all"
 
     latest_submissions = {}
@@ -431,7 +431,7 @@ def render_draw_polygons_page():
     #     except Exception:
     #         pass
 
-    st.title("PSOC LTS Tool")
+    st.title("PSOC PCP Tool")
     # --- UI Load Baseline ---
     baseline_docs = get_all_baseline_versions(mongo_uri, mongo_db, mongo_coll) if mongo_uri else []
     if baseline_docs:
@@ -597,7 +597,7 @@ def render_draw_polygons_page():
             autosize=False,
             width=800, 
             height=600,
-            title='Year 1 Long Term Scheduler Preference: SELFIE 453',
+            title='Year 1 Poor Conditions Program Preference: SELFIE 453',
             clickmode='event+select',
             xaxis=dict(
                 title='R.A.',
@@ -624,7 +624,7 @@ def render_draw_polygons_page():
             name=""
             ), layout=layout)
 
-        old_title = fig.layout.title.text if (hasattr(fig.layout, "title") and fig.layout.title and getattr(fig.layout.title, "text", None)) else "Year 1 Long Term Scheduler Preference"
+        old_title = fig.layout.title.text if (hasattr(fig.layout, "title") and fig.layout.title and getattr(fig.layout.title, "text", None)) else "Year 1 Poor Conditions Program Preference"
         figs = []
         for idx in range(1, 6):
             newf = go.Figure(fig)
@@ -786,7 +786,7 @@ def render_draw_polygons_page():
     if surveyNumber == None:
         surveyNumber = '00'
     today = datetime.date.today()
-    fileOutputName = 'S'+str(surveyNumber)+'_'+'LTSYear1'+'_'+str(today.year)+today.strftime('%m')+today.strftime('%d')+'.json'
+    fileOutputName = 'S'+str(surveyNumber)+'_'+'PCPYear1'+'_'+str(today.year)+today.strftime('%m')+today.strftime('%d')+'.json'
     st.write('File name:', fileOutputName)
     json_string = json.dumps(data,indent=4, separators=(',', ': '))
 
@@ -795,7 +795,7 @@ def render_draw_polygons_page():
         Save JSON to a MongoDB collection.
         Expects environment variables (or defaults):
           MONGO_URI          - MongoDB connection string (required)
-          MONGO_DB           - database name (default: 'lts')
+          MONGO_DB           - database name (default: 'pcp')
           MONGO_COLLECTION   - collection name (default: 'year1submissions')
         The inserted document will have fields:
           filename, timestamp (UTC ISO), data (parsed JSON)
@@ -982,7 +982,7 @@ def render_draw_polygons_page():
                 doc = latest_submissions.get(r['survey'])
                 st.json(doc)
 
-        allSubmissions = 'LTSYear1_all_surveys'+'_'+str(today.year)+today.strftime('%m')+today.strftime('%d')+'.json'
+        allSubmissions = 'PCPYear1_all_surveys'+'_'+str(today.year)+today.strftime('%m')+today.strftime('%d')+'.json'
 
         # make this specific download button appear green like the Save button
         st.markdown(

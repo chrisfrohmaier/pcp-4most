@@ -1,4 +1,4 @@
 [server]
-baseUrlPath = "lts-processor"
+baseUrlPath = "pcp-processor"
 enableCORS = false
 enableXsrfProtection = false
