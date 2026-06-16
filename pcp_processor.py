@@ -170,10 +170,13 @@ def get_pixels_for_shape(nside, shape, ra_all, dec_all):
             
     return pixels
 
-def create_polygon_map(nside, target_year, submissions):
+def create_polygon_map(nside, target_year, submissions, default_to_zero=False):
     """Creates a HEALPix map representing the t_frac footprint from MongoDB submissions for a given year."""
     npix = hp.nside2npix(nside)
-    poly_map = np.full(npix, np.nan, dtype=np.float64)
+    if default_to_zero:
+        poly_map = np.zeros(npix, dtype=np.float64)
+    else:
+        poly_map = np.full(npix, np.nan, dtype=np.float64)
     
     ra_all, dec_all = hp.pix2ang(nside, np.arange(npix), nest=True, lonlat=True)
     
@@ -184,12 +187,21 @@ def create_polygon_map(nside, target_year, submissions):
         areas = data.get('year1Areas', [])
         
         for area in areas:
-            try:
-                area_year = int(area.get('year', 1))
-            except Exception:
-                area_year = 1
-                
-            if area_year != target_year:
+            year_raw = area.get('year', 1)
+            if isinstance(year_raw, list):
+                years_list = []
+                for y in year_raw:
+                    try:
+                        years_list.append(int(y))
+                    except (ValueError, TypeError):
+                        pass
+            else:
+                try:
+                    years_list = [int(year_raw)]
+                except (ValueError, TypeError):
+                    years_list = [1]
+                    
+            if target_year not in years_list:
                 continue
                 
             t_frac = float(area.get('t_frac', 0.0))
@@ -211,7 +223,7 @@ def convertUserWeightToPCPWeight(userWeight):
     weightPCP = (userWeight*4.0)/(1-userWeight)
     return weightPCP
 
-def process_pcp_state(nside, start_date_mjd, submissions=None, plot_proj="mollweide", return_figs=False, return_fits=False):
+def process_pcp_state(nside, start_date_mjd, submissions=None, plot_proj="mollweide", default_to_zero=False, return_figs=False, return_fits=False):
     """
     Process the polygon configurations from submissions and generate PCP FITS files.
     """
@@ -221,6 +233,7 @@ def process_pcp_state(nside, start_date_mjd, submissions=None, plot_proj="mollwe
     print("--- Processing PCP State ---")
     print(f"Start Date MJD: {start_date_mjd}")
     print(f"NSIDE: {nside}")
+    print(f"Default to Zero: {default_to_zero}")
     print("----------------------------")
     
     poly_fig = None
@@ -229,7 +242,7 @@ def process_pcp_state(nside, start_date_mjd, submissions=None, plot_proj="mollwe
     
     for year_num in range(1, 6):
         # Generate the polygon t_frac map for this year
-        poly_map = create_polygon_map(nside, year_num, submissions)
+        poly_map = create_polygon_map(nside, year_num, submissions, default_to_zero=default_to_zero)
         
         # Apply the user defined PCP scaling function
         in_poly_mask = ~np.isnan(poly_map)
@@ -321,6 +334,12 @@ def main():
         choices=["mollweide", "cartesian"],
         help="Projection type for diagnostic plots (mollweide or cartesian, default: mollweide)"
     )
+    parser.add_argument(
+        "--default-to-zero",
+        action="store_true",
+        dest="default_to_zero",
+        help="Set all HEALPix pixels to 0 by default, instead of NaN"
+    )
     
     args = parser.parse_args()
     
@@ -344,7 +363,8 @@ def main():
         nside=args.nside,
         start_date_mjd=args.start_date_mjd,
         submissions=submissions,
-        plot_proj=args.plot_proj
+        plot_proj=args.plot_proj,
+        default_to_zero=args.default_to_zero
     )
 
 if __name__ == "__main__":

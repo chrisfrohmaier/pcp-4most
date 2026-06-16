@@ -91,6 +91,7 @@ def render_pcp_processor_page():
         nside_options = [16, 32, 64, 128]
         nside = st.selectbox("Select Map Resolution (NSIDE)", options=nside_options, index=1)
         start_date = st.date_input("Project Start Date", value=date.today())
+        default_to_zero = st.toggle("Default t_frac=0 ?", value=True)
     with col2:
         plot_proj = st.selectbox("Plot Projection", ["mollweide", "cartesian"])
     
@@ -115,6 +116,7 @@ def render_pcp_processor_page():
                 start_date_mjd=start_date_mjd,
                 submissions=submissions,
                 plot_proj=plot_proj,
+                default_to_zero=default_to_zero,
                 return_figs=True,
                 return_fits=True
             )

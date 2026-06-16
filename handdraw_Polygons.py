@@ -74,31 +74,19 @@ def plotPolygons(data, survey_id, allColours=True):
 
 
     for i in data["year1Areas"]:
-        # determine target figure from top-level 'year' in data
-        #print('Data being plotted:', i)
-        try:
-            year_val = int(i['year'])
-            #print("Detected year:", year_val)
-        except Exception:
-            #print("Error detecting year.")
-            year_val = None
-
-        # default routing: year==2 -> fig2, otherwise -> fig1
-        try:
-            if year_val == 5:
-                target_fig = fig5
-            elif year_val == 4:
-                target_fig = fig4
-            elif year_val == 3:
-                target_fig = fig3
-            elif year_val == 2:
-                target_fig = fig2
-            else:
-                target_fig = fig1
-        except NameError:
-            # if figs are not yet created, fallback to original fig
-            # print("Figure objects not found; defaulting to 'fig'.")
-            target_fig = globals().get('fig', None)
+        year_raw = i.get('year', 1)
+        if isinstance(year_raw, list):
+            years = []
+            for y in year_raw:
+                try:
+                    years.append(int(y))
+                except (ValueError, TypeError):
+                    pass
+        else:
+            try:
+                years = [int(year_raw)]
+            except (ValueError, TypeError):
+                years = [1]
 
         # compute color from t_frac (default to 0 if missing)
         tfrac = i.get('t_frac', 0.0)
@@ -111,109 +99,125 @@ def plotPolygons(data, survey_id, allColours=True):
         outline_width = 3  # slightly larger than inner line so white shows as an outline
         inner_width = 2
 
-        if i['type']=='stripe':
-            RA_lower = i['RA_lower']; RA_upper = i['RA_upper']
-            Dec_lower = i['Dec_lower']; Dec_upper = i['Dec_upper']
-            # compute RA span, handle wrap-around across 360->0
-            if RA_upper >= RA_lower:
-                ra_span = RA_upper - RA_lower
-            else:
-                ra_span = (RA_upper + 360.0) - RA_lower
-            dec_span = abs(Dec_upper - Dec_lower)
-            # enforce minimum span of 2.5 degrees for both axes
-            min_span = 2.5
-            if dec_span < min_span:
-                st.warning(
-                    f"Stripe '{i.get('name','')}' for survey {survey_id} is too small: "
-                    f"Dec span={dec_span:.2f}. Minimum is {min_span}.\n This will not be plotted and is not a valid PCP input."
-                )
+        for year_val in years:
+            try:
+                if year_val == 5:
+                    target_fig = fig5
+                elif year_val == 4:
+                    target_fig = fig4
+                elif year_val == 3:
+                    target_fig = fig3
+                elif year_val == 2:
+                    target_fig = fig2
+                else:
+                    target_fig = fig1
+            except NameError:
+                # if figs are not yet created, fallback to original fig
+                target_fig = globals().get('fig', None)
+
+            if target_fig is None:
                 continue
-            # build rectangle corners and plot on chosen figure
-            corners = rect_corners(RA_lower, RA_upper, Dec_lower, Dec_upper, closed=True)
 
-            # white outline trace (no fill)
-            target_fig.add_trace(go.Scatter(
-                x=corners[:, 0],
-                y=corners[:, 1],
-                showlegend=False,
-                mode="lines",
-                line=dict(color=outline_color, width=outline_width),
-                hoverinfo='skip',
-            ))
+            if i['type']=='stripe':
+                RA_lower = i['RA_lower']; RA_upper = i['RA_upper']
+                Dec_lower = i['Dec_lower']; Dec_upper = i['Dec_upper']
+                # compute RA span, handle wrap-around across 360->0
+                if RA_upper >= RA_lower:
+                    ra_span = RA_upper - RA_lower
+                else:
+                    ra_span = (RA_upper + 360.0) - RA_lower
+                dec_span = abs(Dec_upper - Dec_lower)
+                # enforce minimum span of 2.5 degrees for both axes
+                min_span = 2.5
+                if dec_span < min_span:
+                    st.warning(
+                        f"Stripe '{i.get('name','')}' for survey {survey_id} is too small: "
+                        f"Dec span={dec_span:.2f}. Minimum is {min_span}.\n This will not be plotted and is not a valid PCP input."
+                    )
+                    continue
+                # build rectangle corners and plot on chosen figure
+                corners = rect_corners(RA_lower, RA_upper, Dec_lower, Dec_upper, closed=True)
 
-            # colored filled trace on top
-            target_fig.add_trace(go.Scatter(
-                x=corners[:, 0],
-                y=corners[:, 1],
-                showlegend=False,
-                mode="lines",
-                fill="toself",
-                line=dict(color=hexcol, width=inner_width),
-                fillcolor=fillcol,
-                name=f"{survey_id}<br> t_frac: {tfrac}"
-            )
-                        )
-        elif i['type']=='point':
-            ra_center = i['RA_center']
-            dec_center = i['Dec_center']
-            radius = 1.15
-            tfrac = i['t_frac']
-            tissot = plotEllipseTissot(ra_center, dec_center, radius = radius)
+                # white outline trace (no fill)
+                target_fig.add_trace(go.Scatter(
+                    x=corners[:, 0],
+                    y=corners[:, 1],
+                    showlegend=False,
+                    mode="lines",
+                    line=dict(color=outline_color, width=outline_width),
+                    hoverinfo='skip',
+                ))
 
-            # white outline trace (no fill)
-            target_fig.add_trace(go.Scatter(
-                x=tissot[:, 0],
-                y=tissot[:, 1],
-                showlegend=False,
-                mode="lines",
-                line=dict(color=outline_color, width=outline_width),
-                hoverinfo='skip',
-            ))
+                # colored filled trace on top
+                target_fig.add_trace(go.Scatter(
+                    x=corners[:, 0],
+                    y=corners[:, 1],
+                    showlegend=False,
+                    mode="lines",
+                    fill="toself",
+                    line=dict(color=hexcol, width=inner_width),
+                    fillcolor=fillcol,
+                    name=f"{i.get('name', 'stripe')}<br> t_frac: {tfrac}"
+                ))
+            elif i['type']=='point':
+                ra_center = i['RA_center']
+                dec_center = i['Dec_center']
+                radius = 1.15
+                tfrac = i['t_frac']
+                tissot = plotEllipseTissot(ra_center, dec_center, radius = radius)
 
-            # colored filled trace on top
-            target_fig.add_trace(go.Scatter(
-                x=tissot[:, 0],
-                y=tissot[:, 1],
-                showlegend=False,
-                mode="lines",
-                fill="toself",
-                line=dict(color=hexcol, width=inner_width),
-                fillcolor=fillcol,
-                name=f"{survey_id}<br> t_frac: {tfrac}"
-            )
-                        )
+                # white outline trace (no fill)
+                target_fig.add_trace(go.Scatter(
+                    x=tissot[:, 0],
+                    y=tissot[:, 1],
+                    showlegend=False,
+                    mode="lines",
+                    line=dict(color=outline_color, width=outline_width),
+                    hoverinfo='skip',
+                ))
 
-        elif i['type']=='polygon' or i['type']=='box':
-            RA = list(i['RA'])
-            Dec = list(i['Dec'])
-            tfrac = i['t_frac']
-            if len(RA) > 0 and (RA[0] != RA[-1] or Dec[0] != Dec[-1]):
-                RA.append(RA[0])
-                Dec.append(Dec[0])
-            coords = np.column_stack((RA, Dec))
+                # colored filled trace on top
+                target_fig.add_trace(go.Scatter(
+                    x=tissot[:, 0],
+                    y=tissot[:, 1],
+                    showlegend=False,
+                    mode="lines",
+                    fill="toself",
+                    line=dict(color=hexcol, width=inner_width),
+                    fillcolor=fillcol,
+                    name=f"{i.get('name', 'point')}<br> t_frac: {tfrac}"
+                ))
 
-            # white outline trace (no fill)
-            target_fig.add_trace(go.Scatter(
-                x=coords[:, 0],
-                y=coords[:, 1],
-                showlegend=False,
-                mode="lines",
-                line=dict(color=outline_color, width=outline_width),
-                hoverinfo='skip',
-            ))
+            elif i['type']=='polygon' or i['type']=='box':
+                RA = list(i['RA'])
+                Dec = list(i['Dec'])
+                tfrac = i['t_frac']
+                if len(RA) > 0 and (RA[0] != RA[-1] or Dec[0] != Dec[-1]):
+                    RA.append(RA[0])
+                    Dec.append(Dec[0])
+                coords = np.column_stack((RA, Dec))
 
-            # colored filled trace on top
-            target_fig.add_trace(go.Scatter(
-                x=coords[:, 0],
-                y=coords[:, 1],
-                showlegend=False,
-                mode="lines",
-                fill="toself",
-                line=dict(color=hexcol, width=inner_width),
-                fillcolor=fillcol,
-                name="t_frac: "+str(tfrac)
-            )
-                        )
+                # white outline trace (no fill)
+                target_fig.add_trace(go.Scatter(
+                    x=coords[:, 0],
+                    y=coords[:, 1],
+                    showlegend=False,
+                    mode="lines",
+                    line=dict(color=outline_color, width=outline_width),
+                    hoverinfo='skip',
+                ))
+
+                # colored filled trace on top
+                target_fig.add_trace(go.Scatter(
+                    x=coords[:, 0],
+                    y=coords[:, 1],
+                    showlegend=False,
+                    mode="lines",
+                    fill="toself",
+                    line=dict(color=hexcol, width=inner_width),
+                    fillcolor=fillcol,
+                    name=f"{i.get('name', 'polygon')}<br> t_frac: {tfrac}"
+                ))
         
         else:
             # print("Please enter a valid shape: 'stripe', 'point', or 'polygon' (or 'box').")
@@ -372,8 +376,6 @@ def get_all_baseline_versions(mongo_uri, db_name="pcp", coll_name="year1submissi
             pass
 
 def render_draw_polygons_page():
-    if "drawing_points" not in st.session_state:
-        st.session_state.drawing_points = []
     if "editor_key" not in st.session_state:
         st.session_state.editor_key = 0
     if "editor_code" not in st.session_state:
@@ -497,54 +499,6 @@ def render_draw_polygons_page():
     "commands": ["submit"],
     "style": {"bottom": "0.44rem", "right": "0.4rem"}
     }]
-
-    # --- Visual Drawing Additions Begin ---
-    st.sidebar.header("Visual Drawing Mode")
-    st.sidebar.markdown("Click on any sky map to define vertices.")
-
-    col_draw1, col_draw2 = st.sidebar.columns(2)
-    if col_draw1.button("Undo Point") and st.session_state.drawing_points:
-        st.session_state.drawing_points.pop()
-        st.rerun()
-    if col_draw2.button("Clear") and st.session_state.drawing_points:
-        st.session_state.drawing_points = []
-        st.rerun()
-
-    st.sidebar.write(f"**Points selected: {len(st.session_state.drawing_points)}**")
-    for idx, pt in enumerate(st.session_state.drawing_points):
-        st.sidebar.caption(f"{idx+1}: RA={pt[0]:.2f}, Dec={pt[1]:.2f}")
-
-    draw_year = st.sidebar.number_input("Year", min_value=1, max_value=5, value=1)
-    draw_tfrac = st.sidebar.number_input("t_frac", min_value=0.0, max_value=1.0, value=1.0)
-    draw_name = st.sidebar.text_input("Name", value="drawn_polygon")
-
-    if st.sidebar.button("Save Polygon to Editor"):
-        if len(st.session_state.drawing_points) >= 3:
-            try:
-                curr_data = json.loads(st.session_state.editor_code)
-                if "year1Areas" not in curr_data:
-                    curr_data["year1Areas"] = []
-
-                ra_list = [round(pt[0], 3) for pt in st.session_state.drawing_points]
-                dec_list = [round(pt[1], 3) for pt in st.session_state.drawing_points]
-
-                curr_data["year1Areas"].append({
-                    "name": draw_name,
-                    "type": "polygon",
-                    "RA": ra_list,
-                    "Dec": dec_list,
-                    "t_frac": draw_tfrac,
-                    "year": draw_year
-                })
-                st.session_state.editor_code = json.dumps(curr_data, indent=4)
-                st.session_state.editor_key += 1
-                st.session_state.drawing_points = []
-                st.sidebar.success("Polygon saved! Press 'Run' on editor to view it.")
-                st.rerun()
-            except Exception as e:
-                st.sidebar.error(f"Error updating editor: {e}")
-        else:
-            st.sidebar.error("Need at least 3 points.")
 
     #print('Default Data before response', dataDefault)
     response_dict = code_editor(st.session_state.editor_code, lang="json", buttons=custom_btns, height=[10, 20], key=f"editor_{st.session_state.editor_key}")
@@ -703,40 +657,9 @@ def render_draw_polygons_page():
 
     st.plotly_chart(colorbar_fig)
 
-    # Create an invisible scatter grid mapped to the heatmap's coordinates to seamlessly intercept clicks and restore hover info
-    grid_lon = longitude[::2]
-    grid_lat = latitude[::2]
-    grid_z = grid_map_nan[::2, ::2]
-
-    grid_ra, grid_dec = np.meshgrid(grid_lon, grid_lat)
-    invisible_grid = go.Scatter(
-        x=grid_ra.flatten(),
-        y=grid_dec.flatten(),
-        mode='markers',
-        marker=dict(size=8, color='rgba(0,0,0,0)'),  # fully transparent
-        text=grid_z.flatten(),
-        hovertemplate="<i>4MOST VP Exposure Time</i><br><b>RA</b>: %{x:.1f}<br><b>Decl.</b>: %{y:.1f}<br><b>Total t_exp (min)</b>: %{text:.1f}<extra></extra>",
-        showlegend=False,
-        name="click_grid"
-    )
-
-    for f in active_figs:
-        f.add_trace(invisible_grid)
-
-    # We purposefully DO NOT add the draw_trace directly to the figures because Streamlit 
-    # would re-send the entire 3MB payload to the browser on every click, causing lag.
-    # The user tracks their polygon points in the sidebar text until they hit Save.
-
     # display the five pre-created figures vertically
     for idx, f in enumerate((fig1, fig2, fig3, fig4, fig5)):
-        event = st.plotly_chart(f, on_select="rerun", selection_mode="points", key=f"sky_map_{idx}")
-        if event and event.selection.get("points"):
-            pt = event.selection["points"][0]
-            new_pt = (pt.get("x"), pt.get("y"))
-            if new_pt[0] is not None and new_pt[1] is not None:
-                if len(st.session_state.drawing_points) == 0 or st.session_state.drawing_points[-1] != new_pt:
-                    st.session_state.drawing_points.append(new_pt)
-                    st.rerun()
+        st.plotly_chart(f, key=f"sky_map_{idx}")
 
     # New: 1D line plot under the map that shares the longitude x-axis scale
     #import plotly.graph_objects as go as _go  # avoid name clash in context; use existing go normally
