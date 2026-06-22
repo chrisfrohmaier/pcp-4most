@@ -233,7 +233,7 @@ import healpy as hp
 # Cache the dataset read so we don't hit the disk constantly
 @st.cache_data
 def load_qvp_data():
-    return pd.read_csv("./visit_plans/visits_SELFIE593.txt", sep=r'\s+', comment='#', 
+    return pd.read_csv("./visit_plans/visits_SELFIE_PCP.txt", sep=r'\s+', comment='#', 
                        names=['id_tile', 'ra', 'dec', 'pos', 'isky', 'texp', 'texp_ob', 'tob_len', 'irank', 'ntile'])
 
 # Cache the heavy spatial projection
