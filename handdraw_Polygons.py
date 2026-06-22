@@ -540,7 +540,7 @@ def render_draw_polygons_page():
         
         def colorbar(zmin, zmax, n = 6):
             return dict(
-                title = "Total Exposure Time<br>in pixel (minutes)",
+                title = "PCP Exposure Time<br>in pixel (minutes)",
                 tickmode = "array",
                 tickvals = np.linspace(np.log10(zmin), np.log10(zmax), n),
                 ticktext = np.round(10 ** np.linspace(np.log10(zmin), np.log10(zmax), n), 0)
@@ -551,7 +551,7 @@ def render_draw_polygons_page():
             autosize=False,
             width=800, 
             height=600,
-            title='Year 1 Poor Conditions Program Preference: SELFIE 453',
+            title='Year 1 Poor Conditions Program Preference: SELFIE PCP',
             clickmode='event+select',
             xaxis=dict(
                 title='R.A.',
@@ -568,7 +568,7 @@ def render_draw_polygons_page():
                 z=np.ma.log10(grid_map_nan),
             text=grid_map_nan,
             hovertemplate = 
-            "<i>4MOST VP Exposure Time</i><br>" +
+            "<i>4MOST PCP Exposure Time</i><br>" +
             "<b>RA</b>: %{x}<br>" +
             "<b>Decl.</b>: %{y}<br>" +
             "<b>Total t_exp (min)</b>: %{text:.1f}",
