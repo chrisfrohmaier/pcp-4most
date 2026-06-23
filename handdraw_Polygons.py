@@ -530,7 +530,7 @@ def render_draw_polygons_page():
     # Always fetch the cached map so grid_map_nan is universally available down below
     current_nside = st.session_state.get('draw_nside', 32)
     grid_map_nan = get_grid_map(current_nside)
-    zmin = 4
+    zmin = 1
     zmax = np.nanmax(grid_map_nan)
 
     # Only rebuild the expensive base figures if the JSON code changes or resolution shifts!
